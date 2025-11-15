@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 import datetime as dt
 import ast
 from streamlit import runtime
@@ -24,7 +24,19 @@ def get_engine():
     """Crea conexión a PostgreSQL con cache."""
     return create_engine(
         f"postgresql+psycopg2://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}",
-        connect_args={"sslmode": "require", "options": f"-csearch_path={SCHEMA}"}
+        connect_args={
+            "sslmode": "require",
+            "options": f"-csearch_path={SCHEMA}",
+            "connect_timeout": 10,
+            "keepalives": 1,
+            "keepalives_idle": 30,
+            "keepalives_interval": 10,
+            "keepalives_count": 5
+        },
+        pool_pre_ping=True,
+        pool_recycle=3600,
+        pool_size=5,
+        max_overflow=10
     )
 
 def load_realtime_data():
@@ -35,9 +47,7 @@ def load_realtime_data():
     engine = get_engine()
     query = f'SELECT * FROM {SCHEMA}.eia_aggregate_realtime ORDER BY period DESC;'
     try:
-        # Prueba de conectividad rápida
-        with engine.connect() as conn:
-            conn.execute("SELECT 1")
+        # Ejecutar query directamente (pool_pre_ping valida conexión automáticamente)
         df = pd.read_sql(query, engine)
         if 'period' in df.columns:
             df['period'] = pd.to_datetime(df['period'], errors='coerce')
