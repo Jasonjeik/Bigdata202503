@@ -183,7 +183,11 @@ selected_region = st.sidebar.selectbox("Región", regions)
 hours_back = st.sidebar.slider("Horas hacia atrás", 1, 672, 24)
 
 # Filtro de anomalías
-show_anomalies = st.sidebar.checkbox("Mostrar solo anomalías", False)
+anomaly_filter = st.sidebar.selectbox(
+    "Filtro de anomalías",
+    ["Todas", "Solo anomalías", "Solo normal"],
+    index=0
+)
 
 # Información de debug
 st.sidebar.markdown("---")
@@ -208,8 +212,12 @@ if 'period' in df_filtered.columns:
     cutoff_time = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=hours_back)
     df_filtered = df_filtered[df_filtered['period'] >= cutoff_time]
 
-if show_anomalies and 'anomaly' in df_filtered.columns:
-    df_filtered = df_filtered[df_filtered['anomaly'] == 1]
+# Aplicar filtro de anomalías
+if 'anomaly' in df_filtered.columns:
+    if anomaly_filter == "Solo anomalías":
+        df_filtered = df_filtered[df_filtered['anomaly'] == 1]
+    elif anomaly_filter == "Solo normal":
+        df_filtered = df_filtered[df_filtered['anomaly'] == 0]
 
 # Actualizar sidebar con info de filtros aplicados
 st.sidebar.write(f"Registros filtrados: {len(df_filtered):,}")
