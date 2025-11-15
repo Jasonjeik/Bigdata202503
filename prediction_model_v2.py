@@ -723,22 +723,31 @@ def forecast_demand_pipeline_v2(region_code=None, days_back=180, forecast_hours=
     # 5. Métricas de ajuste histórico
     print(f"\n📈 Evaluando ajuste en datos históricos...")
     
-    if model_used == 'LSTM':
-        # Evaluar en últimas 24 horas
-        test_size = min(24, len(df) // 10)
-        df_test = df.tail(test_size + lookback)
-        last_seq = df_test['demand_mw'].head(lookback).values
-        test_pred = predict_lstm(model, scaler, last_seq, test_size)
-        y_true = df_test['demand_mw'].tail(test_size).values
-        y_pred = test_pred
+    # Si usamos modelo pre-entrenado, usar métricas guardadas
+    if saved is not None and not force_retrain:
+        saved_metrics = saved.get('meta', {}).get('metrics', {})
+        mae = saved_metrics.get('MAE', 0.0)
+        rmse = saved_metrics.get('RMSE', 0.0)
+        mape = saved_metrics.get('MAPE', 0.0)
+        print(f"📦 Usando métricas del modelo pre-entrenado")
+    else:
+        # Calcular métricas para modelo recién entrenado
+        if model_used == 'LSTM':
+            # Evaluar en últimas 24 horas
+            test_size = min(24, len(df) // 10)
+            df_test = df.tail(test_size + lookback)
+            last_seq = df_test['demand_mw'].head(lookback).values
+            test_pred = predict_lstm(model, scaler, last_seq, test_size)
+            y_true = df_test['demand_mw'].tail(test_size).values
+            y_pred = test_pred
+            
+        else:  # Prophet
+            y_true = df['demand_mw'].tail(forecast_hours).values
+            y_pred = predictions[:len(y_true)]
         
-    else:  # Prophet
-        y_true = df['demand_mw'].tail(forecast_hours).values
-        y_pred = predictions[:len(y_true)]
-    
-    mae = mean_absolute_error(y_true, y_pred)
-    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
-    mape = np.mean(np.abs((y_true - y_pred) / y_true)) * 100
+        mae = mean_absolute_error(y_true, y_pred)
+        rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+        mape = np.mean(np.abs((y_true - y_pred) / y_true)) * 100
     
     metrics = {
         'MAE': mae,
@@ -759,7 +768,12 @@ def forecast_demand_pipeline_v2(region_code=None, days_back=180, forecast_hours=
         print(f"\n⚠️ CV omitido (datos insuficientes o modelo no es LSTM)")
     
     # 7. Calcular varianza por región y construir intervalos
-    region_sigma = compute_sigma(y_true, y_pred)
+    if saved is not None and not force_retrain:
+        # Usar sigma guardado del modelo pre-entrenado
+        region_sigma = saved.get('sigma', rmse)  # Fallback a RMSE si no hay sigma guardado
+    else:
+        # Calcular sigma de datos recién evaluados
+        region_sigma = compute_sigma(y_true, y_pred)
     if model_used == 'Prophet':
         # Si el modelo Prophet genera intervalos nativos, úsalos; si no, usa sigma
         try:
