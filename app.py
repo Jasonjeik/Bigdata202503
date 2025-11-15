@@ -426,18 +426,66 @@ with prediction_tab:
         n_splits=st.slider("Folds", min_value=2, max_value=5, value=3, disabled=not perform_cv)
         force_retrain=st.checkbox("Forzar reentrenamiento", value=False, help="Entrena y actualiza el mejor modelo guardado (ignora modelos pre-entrenados)")
         if st.button("🤖 Generar Predicción", key='generate_forecast_v2'):
-            spinner_text = "Re-entrenando modelo..." if force_retrain else "Cargando modelo pre-entrenado o entrenando nuevo..."
-            with st.spinner(spinner_text):
-                try:
-                    region_code=None if selected_pred_region=="TODAS" else selected_pred_region
-                    forecast_df, model_info, metrics=forecast_demand_pipeline_v2(region_code=region_code, days_back=days_back, forecast_hours=forecast_hours, use_lstm=use_lstm, use_prophet_fallback=True, perform_cv=perform_cv, n_splits=n_splits, force_retrain=force_retrain)
-                    if forecast_df is not None and not forecast_df.empty:
-                        st.session_state['forecast']=forecast_df; st.session_state['forecast_region']=selected_pred_region; st.session_state['forecast_metrics']=metrics; st.session_state['forecast_model_info']=model_info
-                        model_source = "re-entrenado" if force_retrain else ("pre-entrenado" if model_info.get('pretrained_used') else "nuevo")
-                        st.success(f"✅ Predicción lista con modelo {model_source} ({metrics.get('model','?')})")
-                    else: st.error("Datos insuficientes para predecir.")
-                except Exception as e:
-                    st.error(f"Error en predicción: {e}"); import traceback; st.code(traceback.format_exc())
+            # Crear contenedor para mensajes de estado
+            status_container = st.empty()
+            progress_bar = st.progress(0)
+            
+            try:
+                region_code=None if selected_pred_region=="TODAS" else selected_pred_region
+                
+                # Verificar si existe modelo pre-entrenado
+                from prediction_model_v2 import _has_saved_artifacts, _region_key
+                has_pretrained = _has_saved_artifacts(region_code) and not force_retrain
+                
+                if force_retrain:
+                    status_container.info("🔄 **Modo:** Re-entrenamiento forzado - Entrenando nuevo modelo...")
+                elif has_pretrained:
+                    status_container.success("📦 **Modo:** Cargando modelo pre-entrenado existente...")
+                else:
+                    status_container.warning("🆕 **Modo:** No hay modelo guardado - Entrenando nuevo modelo...")
+                
+                progress_bar.progress(20)
+                
+                forecast_df, model_info, metrics=forecast_demand_pipeline_v2(
+                    region_code=region_code, 
+                    days_back=days_back, 
+                    forecast_hours=forecast_hours, 
+                    use_lstm=use_lstm, 
+                    use_prophet_fallback=True, 
+                    perform_cv=perform_cv, 
+                    n_splits=n_splits, 
+                    force_retrain=force_retrain
+                )
+                
+                progress_bar.progress(100)
+                
+                if forecast_df is not None and not forecast_df.empty:
+                    st.session_state['forecast']=forecast_df
+                    st.session_state['forecast_region']=selected_pred_region
+                    st.session_state['forecast_metrics']=metrics
+                    st.session_state['forecast_model_info']=model_info
+                    
+                    # Determinar fuente del modelo
+                    if force_retrain:
+                        model_source = "re-entrenado"
+                        icon = "🔄"
+                    elif model_info.get('pretrained_used'):
+                        model_source = "pre-entrenado (cargado desde disco)"
+                        icon = "📦"
+                    else:
+                        model_source = "nuevo (recién entrenado)"
+                        icon = "🆕"
+                    
+                    status_container.success(f"{icon} **Predicción completada** con modelo {model_source} ({metrics.get('model','?')})")
+                    progress_bar.empty()
+                else:
+                    status_container.error("❌ Datos insuficientes para generar predicción.")
+                    progress_bar.empty()
+            except Exception as e:
+                status_container.error(f"❌ Error en predicción: {e}")
+                progress_bar.empty()
+                import traceback
+                st.code(traceback.format_exc())
         if 'forecast' in st.session_state and st.session_state['forecast'] is not None:
             forecast_df=st.session_state['forecast']; metrics=st.session_state.get('forecast_metrics', {}); region_name=st.session_state.get('forecast_region','TODAS')
             model_info = st.session_state.get('forecast_model_info', {})
