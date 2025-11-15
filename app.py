@@ -6,17 +6,18 @@ from sqlalchemy import create_engine
 import datetime as dt
 import ast
 from streamlit import runtime
+import os
 
 
 # =========================
 # CONFIGURACIÓN DE BASE DE DATOS
 # =========================
-DB_USER = "prj1_admin"
-DB_PASS = "Bigdataproyecto1"
-DB_HOST = "bigdataproyecto1.postgres.database.azure.com"
-DB_PORT = "5432"
-DB_NAME = "proyecto1"
-SCHEMA = "eia"
+DB_USER = os.getenv("DB_USER", "prj1_admin")
+DB_PASS = os.getenv("DB_PASSWORD", "Bigdataproyecto1")
+DB_HOST = os.getenv("DB_HOST", "bigdataproyecto1.postgres.database.azure.com")
+DB_PORT = os.getenv("DB_PORT", "5432")
+DB_NAME = os.getenv("DB_NAME", "proyecto1")
+SCHEMA = os.getenv("DB_SCHEMA", "eia")
 
 @st.cache_resource
 def get_engine():
@@ -27,19 +28,27 @@ def get_engine():
     )
 
 def load_realtime_data():
-    """Carga datos agregados en tiempo real desde PostgreSQL."""
+    """Carga datos agregados en tiempo real desde PostgreSQL.
+
+    Coloca el mensaje de error en st.session_state['db_error'] si falla.
+    """
     engine = get_engine()
     query = f'SELECT * FROM {SCHEMA}.eia_aggregate_realtime ORDER BY period DESC;'
-    
     try:
+        # Prueba de conectividad rápida
+        with engine.connect() as conn:
+            conn.execute("SELECT 1")
         df = pd.read_sql(query, engine)
         if 'period' in df.columns:
             df['period'] = pd.to_datetime(df['period'], errors='coerce')
         if 'updated_at' in df.columns:
             df['updated_at'] = pd.to_datetime(df['updated_at'], errors='coerce')
+        st.session_state.pop('db_error', None)
         return df
     except Exception as e:
-        # Retornar None para indicar error, no DataFrame vacío
+        # Sanitizar mensaje (evitar mostrar contraseña si apareciera)
+        msg = str(e).replace(DB_PASS, "***") if DB_PASS else str(e)
+        st.session_state['db_error'] = msg
         return None
 
 def get_last_update_time(df):
@@ -72,7 +81,7 @@ with refresh_col1:
         st.cache_data.clear()
         st.rerun()
 with refresh_col2:
-    auto_refresh = st.checkbox("Auto-refresco", value=True, help="Actualiza datos sin interrumpir navegación")
+    auto_refresh = st.checkbox("Auto-refresco", value=False, help="Actualiza datos sin interrumpir navegación")
 with refresh_col3:
     refresh_interval = st.selectbox("Intervalo (seg)", [30,60,120,300], index=1, help="Frecuencia de actualización automática")
 
@@ -107,6 +116,8 @@ else:
 
 if df is None:
     st.error("❌ Error al conectar con la base de datos o la tabla no existe.")
+    if 'db_error' in st.session_state:
+        st.code(st.session_state['db_error'])
     st.info("""
     **Pasos para resolver:**
     
@@ -362,7 +373,39 @@ with anomaly_tab:
 with prediction_tab:
     st.subheader("Predicción de Demanda (Próximas 24h)")
     try:
-        from prediction_model_v2 import forecast_demand_pipeline_v2
+        from prediction_model_v2 import forecast_demand_pipeline_v2, MODEL_DIR
+        import os
+        import json
+        
+        # Mostrar modelos disponibles
+        if os.path.exists(MODEL_DIR):
+            model_files = [f for f in os.listdir(MODEL_DIR) if f.endswith('_meta.json')]
+            if model_files:
+                st.info(f"🤖 **Modelos pre-entrenados disponibles:** {len(model_files)}")
+                with st.expander("Ver modelos guardados"):
+                    for meta_file in sorted(model_files):
+                        try:
+                            with open(os.path.join(MODEL_DIR, meta_file), 'r') as f:
+                                meta = json.load(f)
+                            region_name = meta.get('region', 'Desconocida')
+                            model_type = meta.get('model_type', 'N/A')
+                            saved_at = meta.get('saved_at', 'N/A')
+                            trained_on = meta.get('trained_on', 0)
+                            metrics = meta.get('metrics', {})
+                            mae = metrics.get('MAE', 0)
+                            rmse = metrics.get('RMSE', 0)
+                            mape = metrics.get('MAPE', 0)
+                            
+                            st.markdown(f"""
+                            **Región:** {region_name} | **Tipo:** {model_type} | **Guardado:** {saved_at}
+                            - Datos de entrenamiento: {trained_on:,} registros
+                            - MAE: {mae:.2f} MW | RMSE: {rmse:.2f} MW | MAPE: {mape:.2f}%
+                            """)
+                        except Exception as e:
+                            st.warning(f"⚠️ Error leyendo {meta_file}: {e}")
+            else:
+                st.warning("⚠️ No hay modelos pre-entrenados. Se entrenará uno nuevo.")
+        
         pred_regions=["TODAS"]+sorted([r for r in df['region'].dropna().unique() if r!=''])
         selected_pred_region=st.selectbox("Región", pred_regions, key='pred_region')
         cfg1,cfg2,cfg3,cfg4=st.columns(4)
@@ -371,21 +414,28 @@ with prediction_tab:
         with cfg3: use_lstm=st.checkbox("Usar LSTM", value=True)
         with cfg4: perform_cv=st.checkbox("Cross-Validation", value=True, help="TimeSeries K-Fold")
         n_splits=st.slider("Folds", min_value=2, max_value=5, value=3, disabled=not perform_cv)
-        force_retrain=st.checkbox("Forzar reentrenamiento", value=False, help="Entrena y actualiza el mejor modelo guardado")
+        force_retrain=st.checkbox("Forzar reentrenamiento", value=False, help="Entrena y actualiza el mejor modelo guardado (ignora modelos pre-entrenados)")
         if st.button("🤖 Generar Predicción", key='generate_forecast_v2'):
-            with st.spinner("Entrenando y generando predicciones..."):
+            spinner_text = "Re-entrenando modelo..." if force_retrain else "Cargando modelo pre-entrenado o entrenando nuevo..."
+            with st.spinner(spinner_text):
                 try:
                     region_code=None if selected_pred_region=="TODAS" else selected_pred_region
                     forecast_df, model_info, metrics=forecast_demand_pipeline_v2(region_code=region_code, days_back=days_back, forecast_hours=forecast_hours, use_lstm=use_lstm, use_prophet_fallback=True, perform_cv=perform_cv, n_splits=n_splits, force_retrain=force_retrain)
                     if forecast_df is not None and not forecast_df.empty:
                         st.session_state['forecast']=forecast_df; st.session_state['forecast_region']=selected_pred_region; st.session_state['forecast_metrics']=metrics; st.session_state['forecast_model_info']=model_info
-                        st.success(f"Predicción lista ({metrics.get('model','?')})")
+                        model_source = "re-entrenado" if force_retrain else ("pre-entrenado" if model_info.get('pretrained_used') else "nuevo")
+                        st.success(f"✅ Predicción lista con modelo {model_source} ({metrics.get('model','?')})")
                     else: st.error("Datos insuficientes para predecir.")
                 except Exception as e:
                     st.error(f"Error en predicción: {e}"); import traceback; st.code(traceback.format_exc())
         if 'forecast' in st.session_state and st.session_state['forecast'] is not None:
             forecast_df=st.session_state['forecast']; metrics=st.session_state.get('forecast_metrics', {}); region_name=st.session_state.get('forecast_region','TODAS')
-            st.markdown(f"**Modelo:** {metrics.get('model','?')} {'(pre-entrenado)' if st.session_state.get('forecast_model_info',{}).get('pretrained_used') else ''}")
+            model_info = st.session_state.get('forecast_model_info', {})
+            is_pretrained = model_info.get('pretrained_used', False)
+            trained_records = model_info.get('trained_on', 0)
+            
+            model_badge = "🔄 Modelo pre-entrenado" if is_pretrained else "🆕 Modelo nuevo"
+            st.markdown(f"**Modelo:** {metrics.get('model','?')} | {model_badge} | Registros de entrenamiento: {trained_records:,}")
             mc1,mc2,mc3=st.columns(3)
             with mc1: st.metric("MAE", f"{metrics.get('MAE',0):.2f} MW")
             with mc2: st.metric("RMSE", f"{metrics.get('RMSE',0):.2f} MW")
