@@ -29,7 +29,7 @@ def get_engine():
 def load_realtime_data():
     """Carga datos agregados en tiempo real desde PostgreSQL."""
     engine = get_engine()
-    query = f'SELECT * FROM {SCHEMA}.eia_aggregated_realtime ORDER BY period DESC;'
+    query = f'SELECT * FROM {SCHEMA}.eia_aggregate_realtime ORDER BY period DESC;'
     
     try:
         df = pd.read_sql(query, engine)
@@ -110,16 +110,13 @@ if df is None:
     st.info("""
     **Pasos para resolver:**
     
-    1. 💻 Ejecuta el script de ingesta en una terminal:
-       ```bash
-       python ingesta_eia_incremental.py
-       ```
+    1. ⏰ Verifica que la Azure Function esté ejecutándose (timer cada minuto)
     
-    2. ⏳ Espera al menos 1 minuto para que se cree la tabla `eia_aggregated_realtime`
+    2. ⏳ Espera al menos 1 minuto para que se cree la tabla `eia_aggregate_realtime`
     
     3. 🔄 Recarga esta página (Ctrl+R o F5)
     
-    **Estado actual:** La tabla `eia.eia_aggregated_realtime` aún no existe en PostgreSQL.
+    **Estado actual:** La tabla `eia.eia_aggregate_realtime` aún no existe en PostgreSQL o la Function no está activa.
     """)
     st.stop()
 
