@@ -760,12 +760,15 @@ def forecast_demand_pipeline_v2(region_code=None, days_back=180, forecast_hours=
     print(f"   RMSE: {rmse:,.2f} MW")
     print(f"   MAPE: {mape:.2f}%")
     
-    # 6. Cross Validation
-    if perform_cv and len(df) >= 500 and model_used == 'LSTM':
+    # 6. Cross Validation (solo si entrenamos modelo nuevo)
+    if saved is not None and not force_retrain:
+        print(f"\n⏭️ CV omitido (usando modelo pre-entrenado)")
+    elif perform_cv and len(df) >= 500 and model_used == 'LSTM':
+        print(f"\n🔄 Ejecutando Cross-Validation (modelo nuevo)...")
         cv_metrics = cross_validate_lstm(df, n_splits, lookback, epochs=30)
         metrics.update(cv_metrics)
     else:
-        print(f"\n⚠️ CV omitido (datos insuficientes o modelo no es LSTM)")
+        print(f"\n⚠️ CV omitido (datos insuficientes, modelo no es LSTM, o deshabilitado)")
     
     # 7. Calcular varianza por región y construir intervalos
     if saved is not None and not force_retrain:
