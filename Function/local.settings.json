@@ -1,0 +1,23 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "AzureWebJobsStorage": "DefaultEndpointsProtocol=https;AccountName=testproyecto1;AccountKey=jS//RV0XBK63LYwmAvSJjOCEOqFIqQhQmB8HCekjdq4ulnidJAaa5fxqb/KOfp/lhADAasYLB2Rk+AStZVmA8A==;EndpointSuffix=core.windows.net",
+    "API_KEY": "YOAXAO8j6vBYbOPycDJH0yCfwWgzpK94LQLaZ1hT",
+    "DATABASE_HOST": "bigdataproyecto1.postgres.database.azure.com",
+    "DATABASE_NAME": "proyecto1",
+    "DATABASE_USER": "prj1_admin",
+    "DATABASE_PASSWORD": "Bigdataproyecto1",
+    "DATABASE_PORT": "5432",
+    "DB_SCHEMA": "eia",
+    "INGEST_HISTORICAL": "false",
+    "USE_DB_LAST_PERIOD": "true",
+    "FETCH_END_OFFSET_DAYS": "2",
+    "MAX_RECORDS": "10000",
+    "MAX_ALLOWED_LAG_HOURS": "2",
+    "AGG_LOOKBACK_HOURS": "48",
+    "AGG_RETENTION_HOURS": "48",
+    "RAW_RETENTION_DAYS": "730",
+    "AzureWebJobs.TimerIngestFunction.Disabled": "false"
+  }
+}
